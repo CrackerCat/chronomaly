@@ -25,27 +25,37 @@ To disable `CONFIG_POSIX_CPU_TIMERS_TASK_WORK`, you can follow the steps laid ou
 
 Refer to the `qemu.sh` file for my QEMU run script. I used 4 cores and 3 GB RAM for testing.
 
-# Exploit parameters
+# Exploit parameters you'll need to change
 
 Since the exploit depends on CPU timers, there are two parameters you may need to change to adapt it to your environment.
 
-First, `CPU_USAGE_THRESHOLD`. This parameter is used when consuming CPU time to fire the timers inside the `race_func()`. It must be set such that:
+## `CPU_USAGE_THRESHOLD`
+
+This parameter is used when consuming CPU time to fire the timers inside the `race_func()`. It must be set such that:
 
 - The timers don't fire on every retry attempt (this would imply that `CPU_USAGE_THRESHOLD` is too high, as the timers are firing before the `race_func()` thread can exit).
 - The timers only fire sometimes (this would imply that sometimes the timers fire before the thread exits, and other times it fires while the thread exits).
 
 To determine whether the timers are firing or not, insert a `printf()` statement in the `SIGUSR1` polling code in `free_func()`. If you see the message print out, that means the timers fired.
 
-Second, `PARENT_SETTIME_DELAY_US`. This parameter is used by the parent process to hit the 2nd race window inside `send_sigqueue()` at the same time as the child process. Run the exploit, observe, and modify it as follows:
+If set correctly, you'll start seeing the "Parent raced too late / too early" messages in the terminal.
+
+## `PARENT_SETTIME_DELAY_US`
+
+`PARENT_SETTIME_DELAY_US`. This parameter is used by the parent process to hit the 2nd race window inside `send_sigqueue()` at the same time as the child process. Run the exploit, observe, and modify it as follows:
 
 - The message "Parent raced too late, readjusting..." appears too often – reduce this parameter. 
 - The message "Parent raced too early, readjusting..." appears too often – increase this parameter.
 
-Ideally, the exploit will work within 1 minute. If it doesn't, you'll have to a figure out which of the two parameters above you need to modify.
+Ideally, you want to see both "raced too late" and "raced too early" being printed out, and the exploit will work within 1 minute. If you only see one occurring more than the other, adjust accordingly.
 
 # Potential Improvements
 
 In my cross-cache implementation, I assumed that the kernel is not too busy, and that there haven't been many `struct sigqueue` allocations. I added a comment in `sigqueue_crosscache_preallocs()` that explains what you would need to do improve this.
+
+If the kernel is really busy, or there are already some `struct sigqueue` slab pages on the per-cpu / per-node partial list, then the current cross-cache implementation in `exploit.c` will fail, and the `uaf_sigqueue` / `realloc_sigqueue` won't be re-allocated as a pipe buffer data page.
+
+I purposely chose not to make the cross-cache work in a busy kernel, so that the exploit doesn't get misused :)
 
 # Questions
 
